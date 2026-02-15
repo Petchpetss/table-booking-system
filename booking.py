@@ -38,7 +38,7 @@ if "bookings" not in st.session_state:
 # Groups
 # ==============================
 group_list = (
-    [f"A{i}" for i in range(1, 20)] +
+    [f"A{i}" for i in range(1, 21)] +
     [f"B{i}" for i in range(1, 9)]
 )
 
@@ -155,3 +155,4 @@ if st.session_state.bookings:
 
 else:
     st.info("No bookings yet.")
+
