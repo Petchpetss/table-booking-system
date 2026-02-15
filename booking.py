@@ -1,25 +1,16 @@
 import streamlit as st
 from datetime import date
 import pandas as pd
+import os
 
 # ==============================
-# SAFE RERUN FUNCTION (Compatible All Versions)
-# ==============================
-def safe_rerun():
-    if hasattr(st, "rerun"):
-        st.rerun()
-    elif hasattr(st, "experimental_rerun"):
-        st.experimental_rerun()
-    else:
-        pass  # fallback: do nothing
-
-
-# ==============================
-# Configuration
+# CONFIG
 # ==============================
 OPEN_DATE = date(2026, 2, 15)
 MAX_TABLES = 20
 MAX_BOOKING_PER_GROUP = 2
+EXCEL_FILE = "bookings.xlsx"
+
 today = date.today()
 
 st.title("📅 Table Booking System")
@@ -29,13 +20,15 @@ if today < OPEN_DATE:
     st.stop()
 
 # ==============================
-# Session State
+# LOAD DATA FROM EXCEL
 # ==============================
-if "bookings" not in st.session_state:
-    st.session_state.bookings = []
+if os.path.exists(EXCEL_FILE):
+    df = pd.read_excel(EXCEL_FILE)
+else:
+    df = pd.DataFrame(columns=["Group", "Time Slot", "Table"])
 
 # ==============================
-# Groups
+# GROUPS
 # ==============================
 group_list = (
     [f"A{i}" for i in range(1, 21)] +
@@ -43,7 +36,7 @@ group_list = (
 )
 
 # ==============================
-# Time Slots
+# TIME SLOTS
 # ==============================
 booking_options = [
     "Thursday, Feb 26 | 08:30 - 12:30",
@@ -52,13 +45,16 @@ booking_options = [
 ]
 
 # ==============================
-# Helper Functions
+# HELPER FUNCTIONS
 # ==============================
+def save_to_excel(dataframe):
+    dataframe.to_excel(EXCEL_FILE, index=False)
+
 def get_booked_tables(slot):
-    return [b["Table"] for b in st.session_state.bookings if b["Time Slot"] == slot]
+    return df[df["Time Slot"] == slot]["Table"].tolist()
 
 def count_group_booking(group):
-    return len([b for b in st.session_state.bookings if b["Group"] == group])
+    return len(df[df["Group"] == group])
 
 # ==============================
 # BOOKING SECTION
@@ -82,43 +78,50 @@ with st.form("booking_form"):
         elif table_number in booked_tables:
             st.error("❌ This table is already booked.")
         else:
-            st.session_state.bookings.append({
+            new_row = pd.DataFrame([{
                 "Group": group,
                 "Time Slot": selected_slot,
                 "Table": table_number
-            })
+            }])
+
+            df = pd.concat([df, new_row], ignore_index=True)
+            save_to_excel(df)
+
             st.success(f"🎉 Booking successful! {group} reserved Table {table_number}")
-            safe_rerun()
+            st.rerun()
 
 # ==============================
 # CANCEL SECTION
 # ==============================
 st.header("❌ Cancel Booking")
 
-if st.session_state.bookings:
+if not df.empty:
 
     cancel_group = st.selectbox(
         "Select Group to Cancel",
-        sorted(set([b["Group"] for b in st.session_state.bookings]))
+        sorted(df["Group"].unique())
     )
 
-    group_bookings = [
-        b for b in st.session_state.bookings
-        if b["Group"] == cancel_group
-    ]
+    group_bookings = df[df["Group"] == cancel_group]
 
     cancel_option = st.selectbox(
         "Select Booking to Cancel",
-        [f'{b["Time Slot"]} | Table {b["Table"]}' for b in group_bookings]
+        group_bookings.apply(
+            lambda x: f'{x["Time Slot"]} | Table {x["Table"]}', axis=1
+        )
     )
 
     if st.button("Cancel Selected Booking"):
-        for b in group_bookings:
-            label = f'{b["Time Slot"]} | Table {b["Table"]}'
-            if label == cancel_option:
-                st.session_state.bookings.remove(b)
-                st.success("✅ Booking cancelled successfully!")
-                safe_rerun()
+        slot, table = cancel_option.split(" | Table ")
+        df = df[~(
+            (df["Group"] == cancel_group) &
+            (df["Time Slot"] == slot) &
+            (df["Table"] == int(table))
+        )]
+
+        save_to_excel(df)
+        st.success("✅ Booking cancelled successfully!")
+        st.rerun()
 
 else:
     st.info("No bookings available to cancel.")
@@ -129,7 +132,6 @@ else:
 st.header("🪑 Table Layout")
 
 view_slot = st.selectbox("View tables for time slot", booking_options)
-
 booked_tables = get_booked_tables(view_slot)
 
 cols = st.columns(5)
@@ -145,14 +147,20 @@ for i in range(1, MAX_TABLES+1):
 # ==============================
 st.header("📋 All Bookings")
 
-if st.session_state.bookings:
-    df = pd.DataFrame(st.session_state.bookings)
+if not df.empty:
     st.dataframe(df, use_container_width=True)
 
     st.subheader("📊 Booking Summary per Group")
     summary = df.groupby("Group").size().reset_index(name="Total Bookings")
     st.dataframe(summary, use_container_width=True)
 
+    # DOWNLOAD BUTTON
+    st.download_button(
+        label="⬇️ Download Booking Excel",
+        data=open(EXCEL_FILE, "rb"),
+        file_name="bookings.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+
 else:
     st.info("No bookings yet.")
-
